@@ -11,10 +11,14 @@ export const IPC_CHANNELS = {
     STOP: 'asr:stop',
     /** Send audio data (Renderer -> Main) */
     SEND_AUDIO: 'asr:send-audio',
+    /** Audio level for UI visualization (Renderer -> Main -> Floating) */
+    AUDIO_LEVEL: 'asr:audio-level',
     /** ASR result (Main -> Renderer) */
     RESULT: 'asr:result',
     /** ASR status change (Main -> Renderer) */
     STATUS: 'asr:status',
+    /** Dictation UI mode state (Main -> Renderers) */
+    UI_STATE: 'asr:ui-state',
     /** ASR error (Main -> Renderer) */
     ERROR: 'asr:error',
   },

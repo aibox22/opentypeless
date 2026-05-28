@@ -49,6 +49,8 @@ export class AudioRecorder {
   private resources: AudioResources | null = null;
   private onAudioChunk: AudioChunkCallback;
   private onStateChange: StateChangeCallback | null;
+  private onAudioLevel?: (level: number) => void;
+  private isPrepared = false;
 
   /**
    * Creates a new AudioRecorder instance.
@@ -58,10 +60,12 @@ export class AudioRecorder {
    */
   constructor(
     onAudioChunk: AudioChunkCallback,
-    onStateChange?: StateChangeCallback
+    onStateChange?: StateChangeCallback,
+    onAudioLevel?: (level: number) => void
   ) {
     this.onAudioChunk = onAudioChunk;
     this.onStateChange = onStateChange ?? null;
+    this.onAudioLevel = onAudioLevel;
   }
 
   /**
@@ -112,6 +116,99 @@ export class AudioRecorder {
     void this.resources.audioContext.close();
 
     this.resources = null;
+    this.isPrepared = false;
+  }
+
+  private async ensurePrepared(): Promise<void> {
+    if (this.resources && this.isPrepared) {
+      return;
+    }
+
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) {
+      this.setState({ error: AUDIO_ERRORS.AUDIO_CONTEXT_NOT_SUPPORTED });
+      return;
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: AUDIO_CONFIG.sampleRate,
+        channelCount: AUDIO_CONFIG.channelCount,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+
+    const audioContext = new AudioContextClass({
+      sampleRate: AUDIO_CONFIG.sampleRate,
+    });
+
+    const sourceNode = audioContext.createMediaStreamSource(stream);
+    const processorNode = audioContext.createScriptProcessor(
+      AUDIO_CONFIG.bufferSize,
+      AUDIO_CONFIG.channelCount,
+      AUDIO_CONFIG.channelCount
+    );
+
+    const onChunk = this.onAudioChunk;
+    processorNode.onaudioprocess = (event: AudioProcessingEvent): void => {
+      const inputData = event.inputBuffer.getChannelData(0);
+      this.onAudioLevel?.(this.state.isRecording ? this.calculateAudioLevel(inputData) : 0);
+
+      if (!this.state.isRecording) {
+        return;
+      }
+
+      const pcmBuffer = float32ToArrayBuffer(inputData);
+      onChunk(pcmBuffer);
+    };
+
+    sourceNode.connect(processorNode);
+    processorNode.connect(audioContext.destination);
+
+    this.resources = {
+      stream,
+      audioContext,
+      sourceNode,
+      processorNode,
+    };
+
+    await audioContext.suspend();
+    this.isPrepared = true;
+  }
+
+  public async prepare(): Promise<void> {
+    this.setState({ error: null });
+
+    try {
+      await this.ensurePrepared();
+    } catch (err) {
+      if (err instanceof DOMException) {
+        switch (err.name) {
+          case 'NotAllowedError':
+          case 'PermissionDeniedError':
+            this.setState({ error: AUDIO_ERRORS.PERMISSION_DENIED });
+            break;
+          case 'NotFoundError':
+          case 'DevicesNotFoundError':
+            this.setState({ error: AUDIO_ERRORS.DEVICE_NOT_AVAILABLE });
+            break;
+          default:
+            this.setState({ error: `Microphone error: ${err.message}` });
+        }
+      } else if (err instanceof Error) {
+        this.setState({ error: `Failed to prepare recording: ${err.message}` });
+      } else {
+        this.setState({
+          error: 'An unknown error occurred while preparing recording',
+        });
+      }
+
+      this.cleanupResources();
+    }
   }
 
   /**
@@ -130,72 +227,15 @@ export class AudioRecorder {
     this.setState({ error: null });
 
     try {
-      // Check for AudioContext support
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-      if (!AudioContextClass) {
-        this.setState({ error: AUDIO_ERRORS.AUDIO_CONTEXT_NOT_SUPPORTED });
+      await this.ensurePrepared();
+
+      if (!this.resources) {
         return;
       }
 
-      // Request microphone access with audio constraints
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: AUDIO_CONFIG.sampleRate,
-          channelCount: AUDIO_CONFIG.channelCount,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      // Create AudioContext with desired sample rate
-      const audioContext = new AudioContextClass({
-        sampleRate: AUDIO_CONFIG.sampleRate,
-      });
-
-      // Create source node from media stream
-      const sourceNode = audioContext.createMediaStreamSource(stream);
-
-      // Create ScriptProcessorNode for audio processing
-      // Note: ScriptProcessorNode is deprecated but still widely supported
-      // AudioWorklet would be the modern replacement but requires more setup
-      const processorNode = audioContext.createScriptProcessor(
-        AUDIO_CONFIG.bufferSize,
-        AUDIO_CONFIG.channelCount, // input channels
-        AUDIO_CONFIG.channelCount // output channels
-      );
-
-      // Store callback reference for closure
-      const onChunk = this.onAudioChunk;
-
-      // Set up audio processing callback
-      processorNode.onaudioprocess = (event: AudioProcessingEvent): void => {
-        // Get audio data from input buffer (channel 0 = mono)
-        const inputData = event.inputBuffer.getChannelData(0);
-
-        // Convert Float32 audio to PCM 16-bit ArrayBuffer
-        const pcmBuffer = float32ToArrayBuffer(inputData);
-
-        // Send chunk to callback
-        onChunk(pcmBuffer);
-      };
-
-      // Connect the audio graph: source -> processor -> destination
-      sourceNode.connect(processorNode);
-      // Connect to destination to ensure onaudioprocess fires
-      // The audio won't actually play because we're not outputting anything meaningful
-      processorNode.connect(audioContext.destination);
-
-      // Store resources for cleanup
-      this.resources = {
-        stream,
-        audioContext,
-        sourceNode,
-        processorNode,
-      };
+      if (this.resources.audioContext.state === 'suspended') {
+        await this.resources.audioContext.resume();
+      }
 
       this.setState({ isRecording: true });
     } catch (err) {
@@ -234,8 +274,12 @@ export class AudioRecorder {
       return;
     }
 
-    this.cleanupResources();
     this.setState({ isRecording: false });
+    this.onAudioLevel?.(0);
+
+    if (this.resources && this.resources.audioContext.state === 'running') {
+      void this.resources.audioContext.suspend();
+    }
   }
 
   /**
@@ -244,5 +288,17 @@ export class AudioRecorder {
   public destroy(): void {
     this.stop();
     this.onStateChange = null;
+    this.onAudioLevel = undefined;
+  }
+
+  private calculateAudioLevel(inputData: Float32Array): number {
+    let sumSquares = 0;
+    for (let i = 0; i < inputData.length; i++) {
+      const sample = inputData[i];
+      sumSquares += sample * sample;
+    }
+
+    const rms = Math.sqrt(sumSquares / inputData.length);
+    return Math.min(1, rms * 6);
   }
 }

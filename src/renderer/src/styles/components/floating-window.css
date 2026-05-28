@@ -4,10 +4,10 @@
  *
  * Design specs:
  * - Width: 320px fixed
- * - Height: 58px min, 112px max (4 lines)
+ * - Height: 46px min, 92px max (4 lines)
  * - Background: rgba(28, 28, 30, 0.92) + blur(20px)
  * - Border: 1px rgba(255, 255, 255, 0.08)
- * - Border radius: 10px
+ * - Border radius: 6px
  *
  * Layout structure (vertical):
  * ┌─────────────────────────────────────┐ ─┬─ paddingTop: 10px
@@ -24,8 +24,8 @@
  * │                                     │     paddingBottom: 6px
  * └─────────────────────────────────────┘
  *      Total height = chromeHeight + contentHeight
- *                   = 40px + (18px × lines)
- *                   = 58px ~ 112px
+ *                   = 28px + (18px × lines)
+ *                   = 46px ~ 92px
  */
 
 /* ============================================
@@ -55,14 +55,14 @@ body {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  border-radius: 6px;
 
   /* Layout - match design spec */
-  width: 320px;
-  min-height: 58px;
-  max-height: 112px;
+  width: 236px;
+  min-height: 46px;
+  max-height: 92px;
   /* paddingTop: 10px, paddingBottom: 6px, left: 12px, right: 16px (extra for vibrancy edge) */
-  padding: 10px 16px 6px 12px;
+  padding: 7px 12px 5px 10px;
   /* Use clip instead of hidden to prevent content clipping at edges */
   overflow: clip;
 
@@ -81,7 +81,7 @@ body {
   display: flex;
   flex-direction: column;
   /* gap between status bar and transcript area */
-  gap: 6px;
+  gap: 4px;
   height: 100%;
   /* Allow status indicator animation to be visible */
   overflow: visible;
@@ -95,11 +95,11 @@ body {
   display: flex;
   /* Vertically center dot and label */
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   /* Status bar min-height to accommodate dot animation (6px * 1.2 scale = ~8px) */
-  min-height: 16px;
+  min-height: 13px;
   /* Bottom padding before border */
-  padding-bottom: 6px;
+  padding-bottom: 4px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
   /* Ensure animated dot glow/scale doesn't get clipped */
@@ -108,8 +108,8 @@ body {
 
 .status-indicator__dot {
   /* Dot size: 6px for better alignment with 11px font */
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
   transition: background-color 0.2s ease;
@@ -118,7 +118,7 @@ body {
 .status-indicator__label {
   color: rgba(255, 255, 255, 0.6);
   /* Status bar font size: 11px */
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 400;
   line-height: 1;
 }
@@ -156,7 +156,48 @@ body {
 
 /* Processing state - red dot, no animation */
 .status-indicator--processing .status-indicator__dot {
-  background: #ff453a;
+  background: #ffd60a;
+  box-shadow: 0 0 8px rgba(255, 214, 10, 0.6);
+  animation: thinking-pulse 1s ease-in-out infinite;
+}
+
+.status-indicator--processing .status-indicator__label::after {
+  content: '';
+  display: inline-block;
+  width: 1.4em;
+  margin-left: 2px;
+  text-align: left;
+  animation: thinking-dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.95;
+    transform: scale(1);
+    box-shadow: 0 0 8px rgba(255, 214, 10, 0.45);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.28);
+    box-shadow: 0 0 14px rgba(255, 214, 10, 0.9);
+  }
+}
+
+@keyframes thinking-dots {
+  0% {
+    content: '';
+  }
+  25% {
+    content: '.';
+  }
+  50% {
+    content: '..';
+  }
+  75%,
+  100% {
+    content: '...';
+  }
 }
 
 /* Pasting state - gray dot */
@@ -179,11 +220,11 @@ body {
  * ============================================ */
 
 .transcript-text {
-  /* Font: 14px with line-height 1.25 = 18px per line */
-  font-size: 14px;
-  line-height: 1.25;
+  /* 12px text on an 18px line-height keeps single-line and multi-line spacing consistent */
+  font-size: 12px;
+  line-height: 18px;
   /* Max height: 4 lines × 18px = 72px */
-  max-height: 72px;
+  max-height: 54px;
   overflow-y: auto;
   overflow-x: hidden;
   scroll-behavior: smooth;
@@ -240,7 +281,7 @@ body {
 }
 
 .error-display__message {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.4;
   color: rgba(255, 255, 255, 0.8);
 }

@@ -24,8 +24,25 @@ function initRecorder(): AudioRecorder {
     },
     (state) => {
       console.log('[Renderer] AudioRecorder state:', state);
+    },
+    (level) => {
+      window.api.asr.sendAudioLevel(level);
     }
   );
+}
+
+async function prepareRecorder(): Promise<void> {
+  if (!recorder) {
+    recorder = initRecorder();
+  }
+
+  try {
+    console.log('[Renderer] Preparing audio recorder...');
+    await recorder.prepare();
+    console.log('[Renderer] Audio recorder prepared');
+  } catch (error) {
+    console.error('[Renderer] Failed to prepare recorder:', error);
+  }
 }
 
 /**
@@ -34,6 +51,10 @@ function initRecorder(): AudioRecorder {
 async function startRecording(): Promise<void> {
   if (!recorder) {
     recorder = initRecorder();
+  }
+
+  if (recorder.isRecording) {
+    return;
   }
 
   try {
@@ -52,6 +73,7 @@ function stopRecording(): void {
   if (recorder) {
     console.log('[Renderer] Stopping audio recording...');
     recorder.stop();
+    window.api.asr.sendAudioLevel(0);
     console.log('[Renderer] Audio recording stopped');
   }
 }
@@ -68,8 +90,12 @@ window.api.asr.onStatus((status) => {
   currentStatus = status;
 
   if (status === 'listening') {
-    // Start recording when ASR is listening
+    // Start recording when ASR is ready to accept live audio
     startRecording();
+  } else if (status === 'connecting') {
+    // Prewarm microphone/audio context while ASR connects
+    void prepareRecorder();
+    void startRecording();
   } else {
     // Stop recording for any other status
     stopRecording();
@@ -85,3 +111,4 @@ window.addEventListener('beforeunload', () => {
 });
 
 console.log('[Renderer] Auto-recording initialized, waiting for ASR status...');
+void prepareRecorder();

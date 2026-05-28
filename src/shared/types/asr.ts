@@ -21,6 +21,18 @@ export interface ASRResult {
   isFinal: boolean;
 }
 
+export type DictationMode = 'realtime' | 'integrated';
+
+export interface StructuredRewriteResult {
+  rawText: string;
+  rewrittenText: string;
+  mode: DictationMode;
+}
+
+export interface DictationUiState {
+  mode: DictationMode | null;
+}
+
 /**
  * ASR status states.
  * - idle: Not started

@@ -8,7 +8,7 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from './shared/constants/channels';
-import type { ASRConfig, ASRResult, ASRStatus } from './shared/types/asr';
+import type { ASRConfig, ASRResult, ASRStatus, DictationUiState } from './shared/types/asr';
 
 /**
  * ASR API exposed to the renderer process.
@@ -33,6 +33,14 @@ const asrApi = {
    */
   sendAudio: (chunk: ArrayBuffer): void => {
     ipcRenderer.send(IPC_CHANNELS.ASR.SEND_AUDIO, chunk);
+  },
+
+  /**
+   * Send current audio level to main process for visualization.
+   * @param level - Normalized level from 0 to 1
+   */
+  sendAudioLevel: (level: number): void => {
+    ipcRenderer.send(IPC_CHANNELS.ASR.AUDIO_LEVEL, level);
   },
 
   /**
@@ -77,6 +85,26 @@ const asrApi = {
     ipcRenderer.on(IPC_CHANNELS.ASR.ERROR, handler);
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.ASR.ERROR, handler);
+    };
+  },
+
+  onUiState: (callback: (state: DictationUiState) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: DictationUiState): void => {
+      callback(state);
+    };
+    ipcRenderer.on(IPC_CHANNELS.ASR.UI_STATE, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.ASR.UI_STATE, handler);
+    };
+  },
+
+  onAudioLevel: (callback: (level: number) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, level: number): void => {
+      callback(level);
+    };
+    ipcRenderer.on(IPC_CHANNELS.ASR.AUDIO_LEVEL, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.ASR.AUDIO_LEVEL, handler);
     };
   },
 };

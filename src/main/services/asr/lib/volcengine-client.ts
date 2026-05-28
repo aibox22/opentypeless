@@ -365,14 +365,24 @@ export class VolcengineClient extends EventEmitter {
       });
 
       this.ws.on('unexpected-response', (_request, response) => {
-        logger.error('Unexpected response', { statusCode: response.statusCode });
+        logger.error('Unexpected response', {
+          statusCode: response.statusCode,
+          statusMessage: response.statusMessage,
+          logId: response.headers['x-tt-logid'],
+          headers: response.headers,
+          resourceId: this.config.resourceId,
+        });
 
         let body = '';
         response.on('data', (chunk: Buffer) => {
           body += chunk.toString();
         });
         response.on('end', () => {
-          logger.error('Response body', { body });
+          logger.error('Response body', {
+            body,
+            logId: response.headers['x-tt-logid'],
+            resourceId: this.config.resourceId,
+          });
           const err = new Error(`WebSocket upgrade failed: ${response.statusCode} - ${body}`);
           clearTimeout(connectionTimeout);
           this.updateState('error');

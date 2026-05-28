@@ -22,6 +22,10 @@ export interface ASRServiceEvents {
   error: (error: Error) => void;
 }
 
+export interface StopASROptions {
+  finalStatus?: ASRStatus;
+}
+
 /**
  * Type-safe event emitter interface for ASRService.
  */
@@ -61,6 +65,8 @@ export class ASRService extends EventEmitter {
   private status: ASRStatus = 'idle';
   private finalResult: ASRResult | null = null;
   private lastResult: ASRResult | null = null;
+  private pendingAudioChunks: ArrayBuffer[] = [];
+  private readonly maxPendingAudioChunks = 80;
 
   /**
    * Get current ASR status.
@@ -79,7 +85,7 @@ export class ASRService extends EventEmitter {
   async start(config?: Partial<ASRConfig>): Promise<void> {
     if (this.status !== 'idle') {
       logger.warn('ASR session already active, stopping previous session');
-      await this.stop();
+      await this.stop({ finalStatus: 'idle' });
     }
 
     logger.info('Starting ASR session');
@@ -126,7 +132,7 @@ export class ASRService extends EventEmitter {
       this.updateStatus('error');
       this.emit('error', err);
       floatingWindow.sendError(`Connection failed: ${err.message}`);
-      this.cleanup();
+      this.cleanup('idle');
       throw err;
     }
   }
@@ -136,12 +142,13 @@ export class ASRService extends EventEmitter {
    *
    * @returns The final ASR result, or null if no result was received
    */
-  async stop(): Promise<ASRResult | null> {
+  async stop(options: StopASROptions = {}): Promise<ASRResult | null> {
     if (!this.client || this.status === 'idle') {
       logger.warn('No active ASR session to stop');
       return null;
     }
 
+    const finalStatus = options.finalStatus ?? 'idle';
     logger.info('Stopping ASR session');
 
     // Signal end of audio to get final result
@@ -150,12 +157,16 @@ export class ASRService extends EventEmitter {
 
       // Wait for final result with timeout
       const result = await this.waitForFinalResult();
-      this.cleanup();
+      this.cleanup(finalStatus);
       return result;
     }
 
-    this.cleanup();
+    this.cleanup(finalStatus);
     return this.finalResult;
+  }
+
+  setStatusManually(status: ASRStatus): void {
+    this.updateStatus(status);
   }
 
   /**
@@ -165,8 +176,21 @@ export class ASRService extends EventEmitter {
    * @param chunk - Audio data as ArrayBuffer
    */
   processAudioChunk(chunk: ArrayBuffer): void {
-    if (!this.client || !this.client.isConnected) {
+    if (!this.client) {
       logger.warn('Cannot process audio: no active connection');
+      return;
+    }
+
+    if (!this.client.isConnected || this.status === 'connecting') {
+      if (this.pendingAudioChunks.length >= this.maxPendingAudioChunks) {
+        this.pendingAudioChunks.shift();
+      }
+
+      this.pendingAudioChunks.push(chunk.slice(0));
+      logger.debug('Buffered audio chunk while ASR was not ready', {
+        bufferedChunks: this.pendingAudioChunks.length,
+        status: this.status,
+      });
       return;
     }
 
@@ -189,6 +213,7 @@ export class ASRService extends EventEmitter {
     this.finalResult = null;
     this.lastResult = null;
     this.status = 'idle';
+    this.pendingAudioChunks = [];
   }
 
   /**
@@ -209,6 +234,10 @@ export class ASRService extends EventEmitter {
 
     this.client.on('status', (status) => {
       this.updateStatus(status);
+
+      if (status === 'listening') {
+        this.flushPendingAudioChunks();
+      }
     });
 
     this.client.on('result', (result) => {
@@ -228,6 +257,22 @@ export class ASRService extends EventEmitter {
       this.emit('error', error);
       floatingWindow.sendError(error.message);
     });
+  }
+
+  private flushPendingAudioChunks(): void {
+    if (!this.client || !this.client.isConnected || this.pendingAudioChunks.length === 0) {
+      return;
+    }
+
+    logger.info('Flushing buffered audio chunks', {
+      chunkCount: this.pendingAudioChunks.length,
+    });
+
+    for (const chunk of this.pendingAudioChunks) {
+      this.client.sendAudio(chunk);
+    }
+
+    this.pendingAudioChunks = [];
   }
 
   /**
@@ -288,14 +333,14 @@ export class ASRService extends EventEmitter {
   /**
    * Cleanup resources.
    */
-  private cleanup(): void {
+  private cleanup(finalStatus: ASRStatus): void {
     if (this.client) {
       this.client.removeAllListeners();
       this.client.disconnect();
       this.client = null;
     }
 
-    this.updateStatus('idle');
+    this.updateStatus(finalStatus);
     logger.info('ASR session cleaned up');
   }
 }

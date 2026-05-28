@@ -22,6 +22,8 @@ export interface KeyboardConfig {
   debounceMs: number;
   /** Minimum recording duration in milliseconds */
   minRecordingMs: number;
+  /** Threshold used to distinguish short press vs long press */
+  holdThresholdMs: number;
 }
 
 /**
@@ -31,6 +33,7 @@ const DEFAULT_CONFIG: KeyboardConfig = {
   triggerKey: UiohookKey.AltRight, // Right Option on macOS
   debounceMs: 50,
   minRecordingMs: 200,
+  holdThresholdMs: 250,
 };
 
 /**
@@ -41,6 +44,15 @@ interface KeyboardState {
   lastKeyDownTime: number;
   lastKeyUpTime: number;
   recordingStartTime: number;
+  longPressTriggered: boolean;
+  holdTimer: NodeJS.Timeout | null;
+}
+
+export interface KeyboardGestureHandlers {
+  onShortPress?: () => void;
+  onLongPressStart?: () => void;
+  onLongPressEnd?: () => void;
+  onCancel?: () => void;
 }
 
 /**
@@ -51,10 +63,11 @@ interface KeyboardState {
  *
  * @example
  * ```typescript
- * keyboardService.register(
- *   () => console.log('Key down - start recording'),
- *   () => console.log('Key up - stop recording')
- * );
+ * keyboardService.register({
+ *   onShortPress: () => console.log('Toggle integrated dictation'),
+ *   onLongPressStart: () => console.log('Start realtime dictation'),
+ *   onLongPressEnd: () => console.log('Stop realtime dictation'),
+ * });
  * ```
  */
 export class KeyboardService {
@@ -64,10 +77,11 @@ export class KeyboardService {
     lastKeyDownTime: 0,
     lastKeyUpTime: 0,
     recordingStartTime: 0,
+    longPressTriggered: false,
+    holdTimer: null,
   };
 
-  private onKeyDown: (() => void) | null = null;
-  private onKeyUp: (() => void) | null = null;
+  private handlers: KeyboardGestureHandlers = {};
   private isStarted = false;
 
   // Bound handlers for proper cleanup
@@ -80,23 +94,22 @@ export class KeyboardService {
       triggerKey: this.config.triggerKey,
       debounceMs: this.config.debounceMs,
       minRecordingMs: this.config.minRecordingMs,
+      holdThresholdMs: this.config.holdThresholdMs,
     });
   }
 
   /**
-   * Register callbacks for key down/up events.
+   * Register callbacks for keyboard gestures.
    *
-   * @param onKeyDown - Called when trigger key is pressed
-   * @param onKeyUp - Called when trigger key is released (after min duration)
+   * @param handlers - Gesture handlers
    */
-  register(onKeyDown: () => void, onKeyUp: () => void): void {
+  register(handlers: KeyboardGestureHandlers): void {
     if (this.isStarted) {
       logger.warn('KeyboardService already registered, unregistering first');
       this.unregister();
     }
 
-    this.onKeyDown = onKeyDown;
-    this.onKeyUp = onKeyUp;
+    this.handlers = handlers;
 
     // Create bound handlers
     this.boundKeyDownHandler = (e) => this.handleKeyDown(e.keycode);
@@ -110,7 +123,7 @@ export class KeyboardService {
     uIOhook.start();
     this.isStarted = true;
 
-    logger.info('KeyboardService registered: Hold Right Option to trigger');
+    logger.info('KeyboardService registered: Right Option short/long press enabled');
   }
 
   /**
@@ -133,8 +146,7 @@ export class KeyboardService {
     uIOhook.stop();
 
     // Clean up state
-    this.onKeyDown = null;
-    this.onKeyUp = null;
+    this.handlers = {};
     this.boundKeyDownHandler = null;
     this.boundKeyUpHandler = null;
     this.isStarted = false;
@@ -161,12 +173,25 @@ export class KeyboardService {
    * Reset internal state.
    */
   private resetState(): void {
+    if (this.state.holdTimer) {
+      clearTimeout(this.state.holdTimer);
+    }
+
     this.state = {
       isKeyHeld: false,
       lastKeyDownTime: 0,
       lastKeyUpTime: 0,
       recordingStartTime: 0,
+      longPressTriggered: false,
+      holdTimer: null,
     };
+  }
+
+  private clearHoldTimer(): void {
+    if (this.state.holdTimer) {
+      clearTimeout(this.state.holdTimer);
+      this.state.holdTimer = null;
+    }
   }
 
   /**
@@ -180,6 +205,14 @@ export class KeyboardService {
    * Handle key down event.
    */
   private handleKeyDown(keycode: number): void {
+    if (keycode === UiohookKey.Escape) {
+      logger.debug('Escape pressed - cancelling gesture/session');
+      this.clearHoldTimer();
+      this.state.isKeyHeld = false;
+      this.handlers.onCancel?.();
+      return;
+    }
+
     // Ignore if not our trigger key
     if (keycode !== this.config.triggerKey) {
       return;
@@ -199,11 +232,20 @@ export class KeyboardService {
     this.state.isKeyHeld = true;
     this.state.lastKeyDownTime = Date.now();
     this.state.recordingStartTime = Date.now();
+    this.state.longPressTriggered = false;
 
     logger.debug('Trigger key pressed');
 
-    // Call callback
-    this.onKeyDown?.();
+    this.clearHoldTimer();
+    this.state.holdTimer = setTimeout(() => {
+      if (!this.state.isKeyHeld || this.state.longPressTriggered) {
+        return;
+      }
+
+      this.state.longPressTriggered = true;
+      logger.debug('Trigger key entered long-press mode');
+      this.handlers.onLongPressStart?.();
+    }, this.config.holdThresholdMs);
   }
 
   /**
@@ -227,13 +269,14 @@ export class KeyboardService {
 
     // Calculate recording duration
     const recordingDuration = Date.now() - this.state.recordingStartTime;
+    const wasLongPress = this.state.longPressTriggered;
 
     // Update state
     this.state.isKeyHeld = false;
     this.state.lastKeyUpTime = Date.now();
+    this.clearHoldTimer();
 
-    // Check minimum recording duration
-    if (recordingDuration < this.config.minRecordingMs) {
+    if (wasLongPress && recordingDuration < this.config.minRecordingMs) {
       logger.debug('Recording too short, ignoring', {
         duration: recordingDuration,
         minRequired: this.config.minRecordingMs,
@@ -243,8 +286,12 @@ export class KeyboardService {
 
     logger.debug('Trigger key released', { duration: recordingDuration });
 
-    // Call callback
-    this.onKeyUp?.();
+    if (wasLongPress) {
+      this.handlers.onLongPressEnd?.();
+      return;
+    }
+
+    this.handlers.onShortPress?.();
   }
 }
 

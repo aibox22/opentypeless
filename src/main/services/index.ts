@@ -42,3 +42,15 @@ export type { PermissionStatus, PermissionType, MediaAccessStatus } from './perm
 // Push-to-Talk Service
 export { PushToTalkService, pushToTalkService } from './push-to-talk';
 export type { PushToTalkConfig } from './push-to-talk';
+
+// LLM Service
+export {
+  DoubaoFormatterService,
+  doubaoFormatterService,
+  loadDoubaoConfig,
+  DoubaoConfigurationError,
+} from './llm';
+export type { DoubaoConfig } from './llm';
+
+// Sound Service
+export { SoundService, soundService } from './sound';

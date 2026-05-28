@@ -26,29 +26,27 @@ import { ErrorDisplay } from './ErrorDisplay';
  * ```
  */
 export function FloatingWindow(): ReactNode {
-  const { status, result, error } = useASRStatus();
+  const { status, result, error, mode, modeLabel } = useASRStatus();
 
-  // Determine what to show based on status
-  // FIX: Show transcript during listening state for real-time streaming display
-  const hasTranscriptText =
+  const statusLabel =
+    status === 'processing' && mode === 'integrated'
+      ? 'Thinking'
+      : modeLabel;
+
+  const showStatusIndicator = Boolean(statusLabel);
+  const showTranscript =
     Boolean(result?.text) &&
-    (status === 'listening' || status === 'processing' || status === 'done');
-
-  // Always show status indicator (status bar at top)
-  const showStatusIndicator = true;
+    (status === 'listening' || status === 'done' || status === 'processing');
 
   return (
     <div className="floating-window">
       <div className="floating-window__content">
-        {/* Status indicator - always visible */}
-        {showStatusIndicator && <StatusIndicator status={status} />}
+        {showStatusIndicator && <StatusIndicator status={status} label={statusLabel ?? ''} />}
 
-        {/* Transcript display - show during listening, processing, and done */}
-        {hasTranscriptText && result && (
+        {showTranscript && result && (
           <TranscriptDisplay text={result.text} interim={!result.isFinal} />
         )}
 
-        {/* Error display */}
         {error && <ErrorDisplay message={error} />}
       </div>
     </div>

@@ -8,4 +8,5 @@ export type {
   ASRResult,
   ASRStatus,
   AudioChunk,
+  DictationUiState,
 } from './asr';

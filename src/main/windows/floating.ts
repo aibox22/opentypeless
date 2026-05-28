@@ -27,18 +27,18 @@ import { IPC_CHANNELS } from '../../shared/constants/channels';
  * │                                     │     paddingBottom: 6px
  * └─────────────────────────────────────┘
  *      Total height = chromeHeight + contentHeight
- *                   = 40px + (18px × lines)
- *                   = 58px ~ 112px
+ *                   = 28px + (18px × lines)
+ *                   = 46px ~ 92px
  */
 const FLOATING_WINDOW_CONFIG = {
   /** Window width in pixels */
-  WIDTH: 320,
+  WIDTH: 236,
   /** Minimum window height (chrome + single line) */
-  MIN_HEIGHT: 58,
+  MIN_HEIGHT: 46,
   /** Maximum window height (chrome + 4 lines) */
-  MAX_HEIGHT: 112,
+  MAX_HEIGHT: 92,
   /** Fixed chrome height (padding + status bar + gap) */
-  CHROME_HEIGHT: 40,
+  CHROME_HEIGHT: 30,
   /** Single line height (14px font × 1.25 line-height ≈ 18px) */
   LINE_HEIGHT: 18,
   /** Distance from bottom of screen (px) */

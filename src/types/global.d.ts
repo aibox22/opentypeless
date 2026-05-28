@@ -3,7 +3,7 @@
  * Extends the Window interface with the exposed API.
  */
 
-import type { ASRConfig, ASRResult, ASRStatus } from '../shared/types/asr';
+import type { ASRConfig, ASRResult, ASRStatus, DictationUiState } from '../shared/types/asr';
 
 /**
  * ASR API interface exposed via contextBridge.
@@ -27,6 +27,12 @@ interface ASRApi {
   sendAudio: (chunk: ArrayBuffer) => void;
 
   /**
+   * Send current audio level to main process for visualization.
+   * @param level - Normalized level from 0 to 1
+   */
+  sendAudioLevel: (level: number) => void;
+
+  /**
    * Subscribe to ASR results.
    * @param callback - Called when ASR result is received
    * @returns Unsubscribe function
@@ -46,6 +52,20 @@ interface ASRApi {
    * @returns Unsubscribe function
    */
   onError: (callback: (error: string) => void) => () => void;
+
+  /**
+   * Subscribe to audio level changes for waveform visualization.
+   * @param callback - Called when audio level changes
+   * @returns Unsubscribe function
+   */
+  onAudioLevel: (callback: (level: number) => void) => () => void;
+
+  /**
+   * Subscribe to dictation UI state changes.
+   * @param callback - Called when dictation mode changes
+   * @returns Unsubscribe function
+   */
+  onUiState: (callback: (state: DictationUiState) => void) => () => void;
 }
 
 /**

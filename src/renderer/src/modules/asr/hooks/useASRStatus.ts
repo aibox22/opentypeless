@@ -3,8 +3,8 @@
  * Used by the floating window to display real-time ASR state.
  */
 
-import { useEffect, useState, useCallback } from 'react';
-import type { ASRResult, ASRStatus } from '../../../../../shared/types/asr';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import type { ASRResult, ASRStatus, DictationMode } from '../../../../../shared/types/asr';
 
 /**
  * Return type for useASRStatus hook.
@@ -16,6 +16,10 @@ export interface UseASRStatusReturn {
   result: ASRResult | null;
   /** Error message if any */
   error: string | null;
+  /** Current dictation mode */
+  mode: DictationMode | null;
+  /** Human-friendly mode label for the floating window */
+  modeLabel: string | null;
   /** Clear the current result and error */
   clear: () => void;
 }
@@ -42,6 +46,7 @@ export function useASRStatus(): UseASRStatusReturn {
   const [status, setStatus] = useState<ASRStatus>('idle');
   const [result, setResult] = useState<ASRResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<DictationMode | null>(null);
 
   // Clear state
   const clear = useCallback(() => {
@@ -72,18 +77,35 @@ export function useASRStatus(): UseASRStatusReturn {
       setStatus('error');
     });
 
+    const unsubscribeUiState = window.api.asr.onUiState((state) => {
+      setMode(state.mode);
+    });
+
     // Cleanup subscriptions
     return () => {
       unsubscribeStatus();
       unsubscribeResult();
       unsubscribeError();
+      unsubscribeUiState();
     };
   }, []);
+
+  const modeLabel = useMemo(() => {
+    if (mode === 'integrated') {
+      return '整合模式';
+    }
+    if (mode === 'realtime') {
+      return '听写模式';
+    }
+    return null;
+  }, [mode]);
 
   return {
     status,
     result,
     error,
+    mode,
+    modeLabel,
     clear,
   };
 }

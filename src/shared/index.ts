@@ -9,6 +9,7 @@ export type {
   ASRResult,
   ASRStatus,
   AudioChunk,
+  DictationUiState,
 } from './types';
 
 // Constants
